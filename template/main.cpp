@@ -2,7 +2,11 @@
 #include <chrono>/* for clock_gettime */
 #include <iostream>
 #include <cstdlib>/* for exit() definition */
+#ifndef __APPLE__
 #include <CL/cl.h>
+#else
+#include <opencl/cl.h>
+#endif
 
 using namespace std;
 
@@ -23,6 +27,7 @@ cl_context context;
 cl_command_queue command_queue;
 cl_mem initial_buf, ending_buf, results_buf, matrix_buf; 
 cl_kernel kernel;
+
 
 // Location
 #define PATHS 16
@@ -54,7 +59,7 @@ int get(int * matrix, int i, int j)
 {
 	#ifdef SPARSE
 
-	#else	
+	#else
 		return matrix[i*COLS + j];
 	#endif
 }
@@ -91,7 +96,7 @@ void OpenCLInit()
   ret = clGetDeviceIDs(platform_id, CL_DEVICE_TYPE_ALL, 1,
                        &device_id, &ret_num_devices);
 
- 
+
 
   char *platformVendor;
   size_t platInfoSize;
@@ -105,7 +110,7 @@ void OpenCLInit()
   context = clCreateContext(NULL, 1, &device_id, NULL, NULL, &ret);
 
   // Create a command queue
- 	command_queue = 
+ 	command_queue =
 		clCreateCommandQueue(context, device_id, NULL, &ret);
 
   // Create a program from the kernel source
@@ -164,7 +169,7 @@ void DataSend()
 																	&ret);
 	CHECK_STATUS(ret, "Error: Create buffer. (ending)\n");
 
-	
+
 	results_buf = clCreateBuffer (	context,
 																	CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR,
 																	PATHS*sizeof(struct Result),
@@ -227,7 +232,7 @@ void Execute()
 int main(int argc, char const ** argv)
 {
 	  chrono::time_point<chrono::system_clock> start_clinit, end_clinit;
-   
+
 		start_clinit = chrono::system_clock::now();
 		OpenCLInit();
 		end_clinit = chrono::system_clock::now();
