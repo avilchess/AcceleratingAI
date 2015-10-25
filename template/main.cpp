@@ -11,7 +11,8 @@ using namespace std;
 
 #define CHECK_STATUS(status, message)           \
   if (status != CL_SUCCESS) {                   \
-    printf(message);                            \
+		printf("%d ", status);											\    
+		printf(message);                            \
     printf("\n");                               \
   }
 
@@ -21,9 +22,10 @@ cl_device_id device_id;
 cl_context context;
 cl_command_queue command_queue;
 cl_mem initial_buf, ending_buf, results_buf, matrix_buf; 
+cl_kernel kernel;
 
 // Location
-#define PATHS 64
+#define PATHS 16
 struct Location
 {
     int row, col;
@@ -44,8 +46,8 @@ struct Location * ending;
 
 // Matrix
 //#define SPARSE
-#define ROWS 1024
-#define COLS 1024
+#define ROWS 64
+#define COLS 64
 int * matrix;
 
 int get(int * matrix, int i, int j)
@@ -58,7 +60,14 @@ int get(int * matrix, int i, int j)
 }
 
 //Result
-int * results;
+struct Result
+{
+	int nelem;	
+	unsigned int data[ROWS*COLS/16];	
+};
+
+
+struct Result * results;
 
 void OpenCLInit()
 {
@@ -106,11 +115,17 @@ void OpenCLInit()
 	                                               &ret);
   // Build the program
   ret = clBuildProgram(program, 1, &device_id, NULL, NULL, NULL);
+	if (ret != CL_SUCCESS)
+	{
+		char build_c[4096];
+		clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, 4096, 			build_c, NULL );
+		printf( "LOG: %s\n", build_c );
 
+	}
   CHECK_STATUS(ret, "Error: Build Program\n");
 
   // Create the OpenCL kernel
-  cl_kernel kernel = clCreateKernel(program, "IDA", &ret);
+  kernel = clCreateKernel(program, "IDA", &ret);
   CHECK_STATUS(ret, "Error: Create kernel. (clCreateKernel)\n");
 
 }
@@ -120,7 +135,9 @@ void DataInit()
 	matrix = (int *) malloc (ROWS*COLS*sizeof(int));
 	initial = (struct Location *) malloc (PATHS*sizeof(struct Location));
 	ending = (struct Location *) malloc (PATHS*sizeof(struct Location));
-	results = (int *) malloc (PATHS*ROWS*COLS*sizeof(int));
+	results = (struct Result *) malloc (PATHS*sizeof(struct Result));
+	for (int i = 0; i < PATHS; i++) results[i].nelem = 0;
+
 }
 
 void DataSend()
@@ -150,7 +167,7 @@ void DataSend()
 	
 	results_buf = clCreateBuffer (	context,
 																	CL_MEM_WRITE_ONLY | CL_MEM_USE_HOST_PTR,
-																	PATHS*ROWS*COLS*sizeof(int),
+																	PATHS*sizeof(struct Result),
 																	results,
 																	&ret);
 	CHECK_STATUS(ret, "Error: Create buffer. (results)\n");
@@ -158,11 +175,52 @@ void DataSend()
 
 void DataReceive()
 {
-
+	
+	int ret = clEnqueueReadBuffer(command_queue,results_buf,CL_TRUE, 0,
+			PATHS*sizeof(struct Result),(void *) results ,0, NULL, NULL);
+	CHECK_STATUS(ret, "Error: Read buffer. (results)\n");
 }
 
 void Execute()
 {
+//SET ARGS
+//		__kernel void IDA( 	__global struct Location * initial,
+//										__global struct Location * ending,
+//										__global int * matrix,
+//										 int paths,
+//										__global int * output)    
+
+		size_t sizes[2] = {256, 256};
+		int ret = clSetKernelArg(kernel, 0, sizeof(cl_mem), (void *)&initial_buf);
+    CHECK_STATUS(ret, "Error:  Set Arg. (0)\n");
+    ret = clSetKernelArg(kernel, 1, sizeof(cl_mem), (void *)&ending_buf);
+    CHECK_STATUS(ret, "Error:  Set Arg. (1)\n");
+    ret = clSetKernelArg(kernel, 2, sizeof(cl_mem), (void *)&matrix_buf);
+    CHECK_STATUS(ret, "Error:  Set Arg. (2)\n");
+    ret = clSetKernelArg(kernel, 3, sizeof(int), (void *)&sizes[1]);
+    CHECK_STATUS(ret, "Error:  Set Arg. (3)\n");
+		ret = clSetKernelArg(kernel, 4, sizeof(cl_mem), (void *)&results_buf);
+    CHECK_STATUS(ret, "Error:  Set Arg. (4)\n");
+
+    ret = clFinish(command_queue);
+    
+    
+    
+    //CALL KERNEL
+    
+    ret = clEnqueueNDRangeKernel(
+                                    command_queue,
+                                    kernel,
+                                    1,
+                                    NULL,
+                                    &sizes[0],
+                                    &sizes[1],
+                                    0,
+                                    0,
+                                    NULL);
+    CHECK_STATUS(ret, "Error:  NDRange. \n");
+
+    ret = clFinish(command_queue);
 
 }
 
@@ -195,6 +253,11 @@ int main(int argc, char const ** argv)
 		end_datareceive = chrono::system_clock::now();
 
 
+		for (int i = 0; i < 16; i++)
+		{
+				cout << results[i].nelem << " ";
+		}
+		cout << endl;
 		//Summarize results
 		cout << "[Timing]" << endl;
 		chrono::duration<double> elapsed = end_clinit-start_clinit;
